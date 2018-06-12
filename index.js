@@ -1,13 +1,20 @@
 'use strict'
 
+const DEFAULT = Symbol('default')
+
 class SQLStatement {
+
   /**
    * @param {string[]} strings
    * @param {any[]} values
    */
   constructor(strings, values) {
     this.strings = strings
-    this.values = values
+    this._values = values
+  }
+
+  get values() {
+    return this._values.filter(x => x !== DEFAULT)
   }
 
   /** Returns the SQL Statement for Sequelize */
@@ -17,7 +24,19 @@ class SQLStatement {
 
   /** Returns the SQL Statement for node-postgres */
   get text() {
-    return this.strings.reduce((prev, curr, i) => prev + '$' + i + curr)
+    return this.strings.slice(1)
+      .reduce((obj, cur, i) => {
+        const val = this._values[i]
+        const isDefault = val === DEFAULT
+        const n = isDefault ? obj.n : obj.n + 1
+        const interpolated = isDefault ? 'DEFAULT' : '$' + n
+        const text = obj.text + interpolated + cur
+        return { text, n }
+      }, {
+        text: this.strings[0],
+        n: 0
+      })
+      .text
   }
 
   /**
@@ -27,8 +46,8 @@ class SQLStatement {
   append(statement) {
     if (statement instanceof SQLStatement) {
       this.strings[this.strings.length - 1] += statement.strings[0]
-      this.strings.push.apply(this.strings, statement.strings.slice(1))
-      ;(this.values || this.bind).push.apply(this.values, statement.values)
+      this.strings = this.strings.concat(statement.strings.slice(1))
+      this._values = this.values.concat(statement._values)
     } else {
       this.strings[this.strings.length - 1] += statement
     }
@@ -46,10 +65,10 @@ class SQLStatement {
       value = true
     }
     if (value && !this.bind) {
-      this.bind = this.values
-      delete this.values
+      this.bind = this._values
+      delete this._values
     } else if (!value && this.bind) {
-      this.values = this.bind
+      this._values = this.bind
       delete this.bind
     }
     return this
@@ -70,7 +89,7 @@ Object.defineProperty(SQLStatement.prototype, 'sql', {
   enumerable: true,
   get() {
     return this.strings.join('?')
-  },
+  }
 })
 
 /**
@@ -86,3 +105,4 @@ module.exports = SQL
 module.exports.SQL = SQL
 module.exports.default = SQL
 module.exports.SQLStatement = SQLStatement
+module.exports.DEFAULT = DEFAULT
